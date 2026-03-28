@@ -1,0 +1,16 @@
+node_modules/
+logs/
+downloads_*/
+.env
+.env.development
+.env.production
+user_data_worker_*/
+worker_*.log
+*.log
+*-audit.json
+playwright-report/
+test-results/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json.bak
