@@ -1711,17 +1711,84 @@ class BrowserEngine {
     async _selectVideoMode() {
         logger_1.logger.info('📹 选择视频生成模式...');
         try {
-            const modeBtn = this.page.locator('text=视频生成').first();
-            if (await modeBtn.isVisible({ timeout: 3000 })) {
+            // 检测底部栏是否处于 Agent 模式
+            const modeInfo = await this.page.evaluate(() => {
+                // 查找底部栏中的模式按钮（包含 "Agent" 或 "视频生成" 文字的按钮）
+                const allEls = document.querySelectorAll('*');
+                const vh = window.innerHeight;
+                for (const el of allEls) {
+                    const rect = el.getBoundingClientRect();
+                    // 底部栏区域
+                    if (rect.top > vh * 0.85 && rect.height > 20 && rect.height < 60
+                        && rect.width > 60 && rect.width < 300) {
+                        const text = el.textContent?.trim() || '';
+                        if (text.includes('Agent') && text.includes('模式') && text.length < 20) {
+                            return { mode: 'agent', cx: rect.x + rect.width / 2, cy: rect.y + rect.height / 2, text };
+                        }
+                    }
+                }
+                // 也检查 "创作类型" 相关的选择器
+                const modeButtons = document.querySelectorAll('[class*="creation-type"], [class*="mode-select"], [class*="creation_type"]');
+                for (const el of modeButtons) {
+                    const text = el.textContent?.trim() || '';
+                    if (text.includes('Agent')) {
+                        const rect = el.getBoundingClientRect();
+                        return { mode: 'agent', cx: rect.x + rect.width / 2, cy: rect.y + rect.height / 2, text };
+                    }
+                }
+                return { mode: 'video' }; // 未检测到 Agent 模式，假定已在视频模式
+            });
+            if (modeInfo.mode === 'video') {
                 logger_1.logger.info('   已经在视频生成模式');
                 return;
             }
-            const modeSelector = this.page.locator('[class*="creation-type"], [class*="mode-select"]').first();
-            await modeSelector.click();
-            await this._humanWait(0.5, 1);
-            await this.page.locator('text=视频生成').click();
-            await this._humanWait(1, 2);
-            logger_1.logger.info('   ✅ 已选择视频生成模式');
+            logger_1.logger.info(`   ⚠️ 检测到 Agent 模式: '${modeInfo.text}'，需要切换到视频生成`);
+            // 点击模式按钮打开下拉菜单
+            await this._humanClick(modeInfo.cx, modeInfo.cy);
+            await this._humanWait(1, 1.5);
+            // 在下拉菜单中点击 "视频生成"
+            const clicked = await this.page.evaluate(() => {
+                // 查找下拉菜单中的 "视频生成" 选项
+                const items = document.querySelectorAll('[class*="menu-item"], [class*="dropdown-item"], [class*="option"], li, [role="menuitem"], [role="option"]');
+                for (const item of items) {
+                    const text = item.textContent?.trim() || '';
+                    if (text === '视频生成' || (text.includes('视频生成') && text.length < 10)) {
+                        const rect = item.getBoundingClientRect();
+                        if (rect.width > 0 && rect.height > 0) {
+                            item.click();
+                            return text;
+                        }
+                    }
+                }
+                // 回退：用 text 匹配
+                const allEls = document.querySelectorAll('*');
+                for (const el of allEls) {
+                    const text = el.textContent?.trim() || '';
+                    const rect = el.getBoundingClientRect();
+                    if (text === '视频生成' && rect.width > 50 && rect.height > 20
+                        && rect.height < 60 && rect.top < window.innerHeight) {
+                        el.click();
+                        return text;
+                    }
+                }
+                return null;
+            });
+            if (clicked) {
+                logger_1.logger.info(`   ✅ 已切换到视频生成模式`);
+                await this._humanWait(2, 3);
+            }
+            else {
+                logger_1.logger.warn('   ⚠️ 下拉菜单中未找到 "视频生成" 选项');
+                // 尝试用 Playwright locator 点击
+                try {
+                    await this.page.locator('text=视频生成').first().click({ timeout: 3000 });
+                    logger_1.logger.info('   ✅ 已通过 locator 切换到视频生成模式');
+                    await this._humanWait(2, 3);
+                }
+                catch (e2) {
+                    logger_1.logger.warn(`   ⚠️ locator 点击也失败: ${e2}`);
+                }
+            }
         }
         catch (e) {
             logger_1.logger.warn(`   ⚠️ 模式选择异常 (可能已在正确模式): ${e}`);
@@ -1742,8 +1809,26 @@ class BrowserEngine {
                 logger_1.logger.warn('   ⚠️ 不在生成页面，跳过模型选择');
                 return;
             }
-            // 用 JS 找到模型按钮
+            // 用 JS 找到模型按钮 - 优先使用 select-view-value 选择器
             const btnInfo = await this.page.evaluate(() => {
+                // 方法1: 精确匹配 lv-select 组件中的模型选择器
+                const selectViews = document.querySelectorAll('.lv-select-view-value, [class*="select-view-value"]');
+                for (const el of selectViews) {
+                    const text = el.textContent?.trim() || '';
+                    if (text.includes('Seedance') && !text.includes('Agent') && !text.includes('创作模式')) {
+                        const rect = el.getBoundingClientRect();
+                        if (rect.width > 0 && rect.height > 0) {
+                            const selectTrigger = el.closest('.lv-select, [class*="lv-select"]') || el;
+                            const triggerRect = selectTrigger.getBoundingClientRect();
+                            return {
+                                text,
+                                cx: triggerRect.x + triggerRect.width / 2,
+                                cy: triggerRect.y + triggerRect.height / 2,
+                            };
+                        }
+                    }
+                }
+                // 方法2: 回退到扫描所有元素
                 const vh = window.innerHeight;
                 const allEls = document.querySelectorAll('*');
                 for (const el of allEls) {
@@ -1754,7 +1839,9 @@ class BrowserEngine {
                         if ((text.includes('3.0') || text.includes('3.5') || text.includes('Seedance')
                             || text.includes('2.0') || text.includes('Fast') || text.includes('Pro'))
                             && text.length > 3 && text.length < 30
-                            && !text.includes('重新编辑') && !text.includes('描述')) {
+                            && !text.includes('重新编辑') && !text.includes('描述')
+                            && !text.includes('Agent') && !text.includes('创作模式')
+                            && !text.includes('详细信息')) {
                             return {
                                 text,
                                 cx: rect.x + rect.width / 2,
@@ -1852,9 +1939,23 @@ class BrowserEngine {
         logger_1.logger.info(`⏱️ 选择时长: ${duration}s...`);
         try {
             const durationText = `${duration}s`;
-            // 用 JS 找到当前时长按钮
+            // 用 JS 找到当前时长按钮 (优先用 lv-select-view-value)
             const btnInfo = await this.page.evaluate(() => {
                 const vh = window.innerHeight;
+                // 方法1: 精确查找 lv-select 组件中的时长选择器
+                const selectViews = document.querySelectorAll('.lv-select-view-value, [class*="select-view-value"]');
+                for (const el of selectViews) {
+                    const text = el.textContent?.trim() || '';
+                    if (/^\d+s$/.test(text)) {
+                        const rect = el.getBoundingClientRect();
+                        if (rect.width > 0 && rect.height > 0) {
+                            const selectTrigger = el.closest('.lv-select, [class*="lv-select"]') || el;
+                            const triggerRect = selectTrigger.getBoundingClientRect();
+                            return { text, cx: triggerRect.x + triggerRect.width / 2, cy: triggerRect.y + triggerRect.height / 2 };
+                        }
+                    }
+                }
+                // 方法2: 扫描底部元素
                 const allEls = document.querySelectorAll('*');
                 for (const el of allEls) {
                     const rect = el.getBoundingClientRect();
@@ -1862,11 +1963,7 @@ class BrowserEngine {
                         && rect.width > 15 && rect.width < 100) {
                         const text = el.textContent?.trim() || '';
                         if (/^\d+s$/.test(text)) {
-                            return {
-                                text,
-                                cx: rect.x + rect.width / 2,
-                                cy: rect.y + rect.height / 2,
-                            };
+                            return { text, cx: rect.x + rect.width / 2, cy: rect.y + rect.height / 2 };
                         }
                     }
                 }
@@ -1882,14 +1979,44 @@ class BrowserEngine {
                 logger_1.logger.info(`   ✅ 当前已是 ${durationText}，无需切换`);
                 return;
             }
+            // 点击打开下拉菜单
             await this._humanClick(btnInfo.cx, btnInfo.cy);
             await this._humanWait(1.0, 1.5);
-            // 在下拉菜单中选择目标时长
-            const optionLoc = this.page.locator(`[class*="lv-select-option"]:has-text("${durationText}")`);
-            if (await optionLoc.count() > 0 && await optionLoc.first().isVisible({ timeout: 2000 })) {
-                await optionLoc.first().click({ timeout: 3000 });
+            // 在下拉菜单中选择目标时长 (用 evaluate 确保可靠性)
+            const clicked = await this.page.evaluate((target) => {
+                const options = document.querySelectorAll('[class*="lv-select-option"], [class*="select-option"], [role="option"]');
+                for (const opt of options) {
+                    const rect = opt.getBoundingClientRect();
+                    if (rect.width <= 0 || rect.height <= 0) continue;
+                    const text = opt.textContent?.trim() || '';
+                    if (text.includes(target) && /^\d+s/.test(text)) {
+                        opt.click();
+                        return text;
+                    }
+                }
+                return null;
+            }, durationText);
+            if (clicked) {
                 await this._humanWait(0.5, 1.0);
                 logger_1.logger.info(`   ✅ 已选择 ${durationText}`);
+            }
+            else {
+                logger_1.logger.warn(`   ⚠️ 下拉菜单中未找到 '${durationText}'，尝试 locator 回退`);
+                // 回退: 用 Playwright locator
+                try {
+                    const optionLoc = this.page.locator(`[class*="select-option"]:has-text("${durationText}")`);
+                    if (await optionLoc.count() > 0 && await optionLoc.first().isVisible({ timeout: 2000 })) {
+                        await optionLoc.first().click({ timeout: 3000 });
+                        await this._humanWait(0.5, 1.0);
+                        logger_1.logger.info(`   ✅ 已通过 locator 选择 ${durationText}`);
+                    }
+                    else {
+                        logger_1.logger.warn(`   ❌ 时长切换失败: 下拉菜单中没有 '${durationText}' 选项`);
+                    }
+                }
+                catch (e2) {
+                    logger_1.logger.warn(`   ❌ 时长切换失败: ${e2}`);
+                }
             }
         }
         catch (e) {

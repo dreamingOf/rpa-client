@@ -52,6 +52,7 @@ class ConcurrentBrowserEngine extends browser_engine_1.BrowserEngine {
     activeSlots = [];
     _maxSlots = 0;
     _modelConfirmed = false;
+    _lastConfirmedModel = null;
     _downloadedUrls = new Set();
     _mainRefreshTimer = null;
     _lastMainRefreshAt = 0;
@@ -240,14 +241,20 @@ class ConcurrentBrowserEngine extends browser_engine_1.BrowserEngine {
                 ? 'Seedance 2.0 Fast'
                 : 'Seedance 2.0';
             logger_1.logger.info(`🎯 [${taskId}] 目标模型: ${targetModel}`);
+            // 如果模型变了，重置确认状态以使用完整的 _selectModel
+            if (this._modelConfirmed && this._lastConfirmedModel !== targetModel) {
+                logger_1.logger.info(`   🔄 模型需切换: ${this._lastConfirmedModel} → ${targetModel}，重置确认状态`);
+                this._modelConfirmed = false;
+            }
             if (!this._modelConfirmed) {
                 await this._selectModel(targetModel);
                 if (await this._verifyModel(targetModel)) {
                     this._modelConfirmed = true;
+                    this._lastConfirmedModel = targetModel;
                 }
                 else {
                     logger_1.logger.warn(`⚠️ [${taskId}] 模型验证无法确认，继续尝试生成`);
-                    this._modelConfirmed = true;
+                    // 不设置 _modelConfirmed，下次仍用完整选择逻辑
                 }
             }
             else {
@@ -349,8 +356,23 @@ class ConcurrentBrowserEngine extends browser_engine_1.BrowserEngine {
             if (!currentUrl.includes('generate')) {
                 return;
             }
-            // 用 JS 找模型按钮坐标
+            // 用 JS 找模型按钮坐标 - 优先使用 select-view-value 选择器
             const btnInfo = await this.page.evaluate(() => {
+                // 方法1: 精确匹配 lv-select 组件中的模型选择器
+                const selectViews = document.querySelectorAll('.lv-select-view-value, [class*="select-view-value"]');
+                for (const el of selectViews) {
+                    const text = el.textContent?.trim() || '';
+                    if (text.includes('Seedance') && !text.includes('Agent') && !text.includes('创作模式')) {
+                        const rect = el.getBoundingClientRect();
+                        if (rect.width > 0 && rect.height > 0) {
+                            // 点击 select 的触发区域（向上找 lv-select 容器）
+                            const selectTrigger = el.closest('.lv-select, [class*="lv-select"]') || el;
+                            const triggerRect = selectTrigger.getBoundingClientRect();
+                            return { cx: triggerRect.x + triggerRect.width / 2, cy: triggerRect.y + triggerRect.height / 2, text };
+                        }
+                    }
+                }
+                // 方法2: 回退到扫描所有元素
                 const vh = window.innerHeight;
                 const allEls = document.querySelectorAll('*');
                 for (const el of allEls) {
@@ -361,7 +383,9 @@ class ConcurrentBrowserEngine extends browser_engine_1.BrowserEngine {
                         if ((text.includes('Seedance') || text.includes('3.0') || text.includes('3.5')
                             || text.includes('2.0') || text.includes('Fast') || text.includes('Pro'))
                             && text.length > 3 && text.length < 30
-                            && !text.includes('重新编辑') && !text.includes('描述')) {
+                            && !text.includes('重新编辑') && !text.includes('描述')
+                            && !text.includes('Agent') && !text.includes('创作模式')
+                            && !text.includes('详细信息')) {
                             return { cx: rect.x + rect.width / 2, cy: rect.y + rect.height / 2, text };
                         }
                     }
