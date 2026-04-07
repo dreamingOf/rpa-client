@@ -1862,15 +1862,38 @@ class BrowserEngine {
             await this._humanWait(1.5, 2.0);
             // 在下拉菜单中选择目标模型
             const clicked = await this.page.evaluate((targetModel) => {
+                const normalizeModelText = (text) => {
+                    return (text || '')
+                        .replace(/\s+/g, ' ')
+                        .replace(/（/g, '(')
+                        .replace(/）/g, ')')
+                        .trim();
+                };
+                const getModelVariant = (text) => {
+                    const normalized = normalizeModelText(text);
+                    if (!normalized.includes('Seedance 2.0')) {
+                        return null;
+                    }
+                    if (normalized.includes('Fast VIP')) {
+                        return 'fast-vip';
+                    }
+                    if (normalized.includes('Fast')) {
+                        return 'fast';
+                    }
+                    if (normalized.includes('VIP')) {
+                        return 'vip';
+                    }
+                    return 'base';
+                };
                 const options = document.querySelectorAll('[class*="lv-select-option"]');
-                const targetIsFast = targetModel.includes('Fast');
+                const targetVariant = getModelVariant(targetModel);
                 for (const opt of options) {
                     const rect = opt.getBoundingClientRect();
                     if (rect.width <= 0 || rect.height <= 0)
                         continue;
                     const text = opt.textContent?.trim() || '';
-                    const optIsFast = text.includes('Fast');
-                    if (text.startsWith(targetModel) && targetIsFast === optIsFast) {
+                    const optVariant = getModelVariant(text);
+                    if (optVariant === targetVariant && normalizeModelText(text).startsWith(normalizeModelText(targetModel))) {
                         opt.click();
                         return text;
                     }
@@ -1915,15 +1938,29 @@ class BrowserEngine {
             });
             logger_1.logger.info(`   🔍 当前模型: '${current}'`);
             if (current) {
-                if (current === expectedModel)
+                const normalizeModelText = (text) => (text || '')
+                    .replace(/\s+/g, ' ')
+                    .replace(/（/g, '(')
+                    .replace(/）/g, ')')
+                    .trim();
+                const getModelVariant = (text) => {
+                    const normalized = normalizeModelText(text);
+                    if (!normalized.includes('Seedance 2.0')) {
+                        return null;
+                    }
+                    if (normalized.includes('Fast VIP')) {
+                        return 'fast-vip';
+                    }
+                    if (normalized.includes('Fast')) {
+                        return 'fast';
+                    }
+                    if (normalized.includes('VIP')) {
+                        return 'vip';
+                    }
+                    return 'base';
+                };
+                if (getModelVariant(current) === getModelVariant(expectedModel))
                     return true;
-                const currentIsFast = current.includes('Fast');
-                const expectedIsFast = expectedModel.includes('Fast');
-                if (currentIsFast !== expectedIsFast)
-                    return false;
-                if (expectedModel.includes(current) || current.includes(expectedModel)) {
-                    return true;
-                }
             }
             return false;
         }

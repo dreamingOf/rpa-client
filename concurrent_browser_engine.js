@@ -398,16 +398,38 @@ class ConcurrentBrowserEngine extends browser_engine_1.BrowserEngine {
                 await this._humanWait(1.5, 2.0);
                 // 尝试在下拉菜单中选择
                 const clicked = await this.page.evaluate((targetModel) => {
+                    const normalizeModelText = (text) => {
+                        return (text || '')
+                            .replace(/\s+/g, ' ')
+                            .replace(/（/g, '(')
+                            .replace(/）/g, ')')
+                            .trim();
+                    };
+                    const getModelVariant = (text) => {
+                        const normalized = normalizeModelText(text);
+                        if (!normalized.includes('Seedance 2.0')) {
+                            return null;
+                        }
+                        if (normalized.includes('Fast VIP')) {
+                            return 'fast-vip';
+                        }
+                        if (normalized.includes('Fast')) {
+                            return 'fast';
+                        }
+                        if (normalized.includes('VIP')) {
+                            return 'vip';
+                        }
+                        return 'base';
+                    };
                     const options = document.querySelectorAll('[class*="lv-select-option"]');
-                    const targetIsFast = targetModel.includes('Fast');
+                    const targetVariant = getModelVariant(targetModel);
                     for (const opt of options) {
                         const rect = opt.getBoundingClientRect();
                         if (rect.width <= 0 || rect.height <= 0)
                             continue;
                         const text = opt.textContent?.trim() || '';
-                        const optIsFast = text.includes('Fast');
-                        // 精确匹配目标模型，区分Fast和非Fast版本
-                        if (text.startsWith(targetModel) && targetIsFast === optIsFast) {
+                        const optVariant = getModelVariant(text);
+                        if (optVariant === targetVariant && normalizeModelText(text).startsWith(normalizeModelText(targetModel))) {
                             opt.click();
                             return text;
                         }
