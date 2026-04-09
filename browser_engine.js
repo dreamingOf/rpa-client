@@ -1653,9 +1653,11 @@ class BrowserEngine {
             await this._humanPause();
             await this._selectVideoMode();
             await this._humanPause();
-            const targetModel = model && model.toLowerCase().includes('fast')
-                ? 'Seedance 2.0 Fast'
-                : 'Seedance 2.0';
+            const lower = (model || '').toLowerCase();
+            const isFast = lower.includes('fast');
+            const isVip = lower.includes('vip');
+            let targetModel = isFast ? 'Seedance 2.0 Fast' : 'Seedance 2.0';
+            if (isVip) targetModel += ' VIP';
             logger_1.logger.info(`🎯 目标模型: ${targetModel}`);
             await this._selectModel(targetModel);
             if (!await this._verifyModel(targetModel)) {

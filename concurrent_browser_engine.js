@@ -219,9 +219,12 @@ class ConcurrentBrowserEngine extends browser_engine_1.BrowserEngine {
             const ratio = taskInfo.ratio || '16:9';
             const refResourceUrls = this._mergeReferenceUrls(taskInfo);
             const modelRaw = taskInfo.model_type || 'seedance2.0';
-            // 解析 -ref 后缀
-            const useRefMode = modelRaw.toLowerCase().endsWith('-ref');
-            const model = useRefMode ? modelRaw.slice(0, -4) : modelRaw;
+            // 解析后缀：-vip 和 -ref 可组合（顺序任意）
+            let lower = modelRaw.toLowerCase();
+            const useVip = lower.includes('-vip') || lower.endsWith('vip');
+            if (useVip) lower = lower.replace(/-vip$/, '').replace(/-vip/, '');
+            const useRefMode = lower.endsWith('-ref');
+            const model = useRefMode ? lower.slice(0, -4) : lower;
             const refMode = useRefMode ? '全能参考' : '首尾帧';
             logger_1.logger.info(`📋 [${taskId}] 开始提交任务到槽位...`);
             logger_1.logger.info(`   📌 参考模式: ${refMode}, 原始model: ${modelRaw}`);
@@ -237,9 +240,9 @@ class ConcurrentBrowserEngine extends browser_engine_1.BrowserEngine {
                 await this._humanPause();
             }
             // Step 2: 选择模型
-            const targetModel = model && model.toLowerCase().includes('fast')
-                ? 'Seedance 2.0 Fast'
-                : 'Seedance 2.0';
+            const isFast = model && model.includes('fast');
+            let targetModel = isFast ? 'Seedance 2.0 Fast' : 'Seedance 2.0';
+            if (useVip) targetModel += ' VIP';
             logger_1.logger.info(`🎯 [${taskId}] 目标模型: ${targetModel}`);
             // 如果模型变了，重置确认状态以使用完整的 _selectModel
             if (this._modelConfirmed && this._lastConfirmedModel !== targetModel) {
